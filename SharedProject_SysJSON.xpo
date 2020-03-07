@@ -1,0 +1,232 @@
+﻿Exportfile for AOT version 1.0 or later
+Formatversion: 1
+
+***Element: CLS
+
+; Microsoft Dynamics AX Class: SysJSONConvert выгружен
+; --------------------------------------------------------------------------------
+  CLSVERSION 1
+  
+  CLASS #SysJSONConvert
+    PROPERTIES
+      Name                #SysJSONConvert
+      Extends             #
+      RunOn               #Called from
+    ENDPROPERTIES
+    
+    METHODS
+      Version: 3
+      SOURCE #classDeclaration
+        #/// <summary>
+        #/// https://www.json.org/json-en.html
+        #/// Сериализует простые типы и классы в строку формата JSON
+        #///
+        #/// Чтобы добавить произвольному классу возможность сериализоваться - нужно в нём создать функцию json()
+        #///
+        #/// Пример реализации функции json() :
+        #///     Если на выходе хотим получить collection of name/value pairs :
+        #///         str json()
+        #///         {
+        #///             return SysJSONConvert::construct()
+        #///                 .WithKeyValue( "field1", fieldValue1)
+        #///                 .WithKeyValue( "field2", fieldValue2)
+        #///                 .json()
+        #///             ;
+        #///         }
+        #///     Если класс по сути является массивом и на выходе хотим получить ordered list of values :
+        #///         str json()
+        #///         {
+        #///             return SysJSONConvert::SerializeObject( valueSet);
+        #///         }
+        #///
+        #/// </summary>
+        #class SysJSONConvert
+        #{
+        #    str     json;
+        #}
+      ENDSOURCE
+      SOURCE #json
+        #str json()
+        #{
+        #    return strfmt( "{%1}", json);
+        #}
+      ENDSOURCE
+      SOURCE #WithKeyValue
+        #SysJSONConvert WithKeyValue(
+        #    str     _key
+        #  , anytype _value
+        #)
+        #{
+        #;
+        #    // Элементы в JSON разделены запятой
+        #    if ( json)
+        #        json    += ",";
+        #
+        #    // Каждый элемент хранится в формате "elementName: elementValue"
+        #    json    += strfmt( "\"%1\": %2", _key, SysJSONConvert::SerializeObject( _value));
+        #
+        #    return this;
+        #}
+      ENDSOURCE
+      SOURCE #construct
+        #static SysJSONConvert construct()
+        #{
+        #    return new SysJSONConvert();
+        #}
+      ENDSOURCE
+      SOURCE #SerializeObject
+        #/// <summary>
+        #/// Сериализует простые типы и классы, содержащие метод json()
+        #/// </summary>
+        #static str SerializeObject( anytype _object)
+        #{
+        #    #define.MethodJSON("json")
+        #
+        #    Types           objectType = typeof(_object);
+        #    SysEnumerator   se;
+        #    Map             map;
+        #    SysDictClass    sysDictClass;
+        #    SysJSONConvert  sysJSONConvert;
+        #
+        #    str             ret;
+        #;
+        #    switch ( objectType)
+        #    {
+        #        case Types::String:
+        #            ret = strfmt( "\"%1\"", _object);
+        #            break;
+        #        case Types::Int64:
+        #            ret = int642str(_object);
+        #            break;
+        #        case Types::Integer:
+        #            ret = int2str(_object);
+        #            break;
+        #        case Types::Enum:
+        #            ret = int2str(_object);
+        #            break;
+        #        case Types::Guid:
+        #            ret = SysJSONConvert::SerializeObject(strrem(guid2str(_object),"{}"));
+        #            break;
+        #        case Types::Date:
+        #            ret = SysJSONConvert::SerializeObject( date2str( _object, 321, 2, 3, 2, 3, 4));
+        #            break;
+        #        case Types::UtcDateTime:
+        #            ret = SysJSONConvert::SerializeObject( DateTimeUtil::toStr( _object));
+        #            break;
+        #        case Types::Real:
+        #            ret = num2expstr( _object, 1);
+        #            break;
+        #        case Types::Container:
+        #            ret = SysJSONConvert::SerializeObject( SysEnumerator::Container( _object));
+        #            break;
+        #        case Types::Class:
+        #            if ( !_object)
+        #                ret = "null";
+        #            else
+        #            switch (classidget(_object))
+        #            {
+        #                case classnum(SysEnumerator):
+        #                    ret = SysJSONConvert::SerializeSysEnumeratorAsArray( _object);
+        #                    break;
+        #                case classnum(Set):
+        #                    ret = SysJSONConvert::SerializeObject( SysEnumerator::Set( _object));
+        #                    break;
+        #                case classnum(Map):
+        #                    map = _object;
+        #                    if (map.keyType() != Types::String)
+        #                        throw Error(strfmt("Объект типа Map можно сериализовать в JSON только если key имеет тип String. А встретился тип %1. Обратитесь к разработчикам!", map.keyType()));
+        #                    ret = SysJSONConvert::SerializeSysEnumeratorAsKeyValuePair( SysEnumerator::newFromMap(_object));
+        #                    break;
+        #                case classnum(List):
+        #                    ret = SysJSONConvert::SerializeObject( SysEnumerator::List( _object));
+        #                    break;
+        #                case classnum(Struct):
+        #                    ret = SysJSONConvert::SerializeSysEnumeratorAsKeyValuePair( SysEnumerator::newFromStruct(_object));
+        #                    break;
+        #                default:
+        #                    sysDictClass    = new SysDictClass( classidget(_object));
+        #                    if ( sysDictClass.hasObjectMethod(#MethodJSON))
+        #                    {
+        #                        ret = sysDictClass.callObject( #MethodJSON, _object);
+        #                    }
+        #                    else
+        #                        throw Error(strfmt("Класс %1 не содержит функцию %2. Обратитесь к разработчикам!", sysDictClass.name(), #MethodJSON));
+        #            }
+        #            break;
+        #        default:
+        #            throw Error(strfmt("Тип %1 не обработан в функции %2. Обратитесь к разработчикам!", enum2str(objectType), funcname()));
+        #    }
+        #
+        #    return ret;
+        #}
+      ENDSOURCE
+      SOURCE #SerializeSysEnumeratorAsArray
+        #/// <summary>
+        #/// Сериализует SysEnumerator в структуру вида "массив"
+        #/// </summary>
+        #private static str SerializeSysEnumeratorAsArray( SysEnumerator _sysEnumerator)
+        #{
+        #    str             ret;
+        #;
+        #    while (_sysEnumerator.moveNext())
+        #    {
+        #        ret += (ret ? "," : "")
+        #             + SysJSONConvert::SerializeObject( _sysEnumerator.current());
+        #    }
+        #
+        #    return strfmt("[%1]", ret);
+        #}
+      ENDSOURCE
+      SOURCE #SerializeSysEnumeratorAsKeyValuePair
+        #/// <summary>
+        #/// Сериализует SysEnumerator в структуру вида "коллекция пар key/value"
+        #/// </summary>
+        #private static str SerializeSysEnumeratorAsKeyValuePair( SysEnumerator _sysEnumerator)
+        #{
+        #    SysJSONConvert  sysJSONConvert;
+        #;
+        #    sysJSONConvert  = SysJSONConvert::construct();
+        #    while (_sysEnumerator.moveNext())
+        #    {
+        #        sysJSONConvert.WithKeyValue( _sysEnumerator.currentKey(), _sysEnumerator.currentValue());
+        #    }
+        #    return sysJSONConvert.json();
+        #}
+      ENDSOURCE
+    ENDMETHODS
+  ENDCLASS
+
+***Element: PRN
+
+; Microsoft Dynamics AX Project : SysJSON unloaded
+; --------------------------------------------------------------------------------
+  PROJECTVERSION 2
+  
+  PROJECT #SysJSON
+   SHARED
+  PROPERTIES
+    Name                #SysJSON
+  ENDPROPERTIES
+  
+    PROJECTCLASS ProjectNode
+    GROUP #Classes
+      PROPERTIES
+        Name                #Classes
+        ProjectGroupType    #Classes
+        GroupMask           #
+        PreventEditProperties #No
+      ENDPROPERTIES
+      
+      BEGINNODE
+        FILETYPE 0
+        UTILTYPE 45
+        UTILOBJECTID 41875
+        NODETYPE 329
+        NAME #SysJSONConvert
+      ENDNODE
+      ENDGROUP
+      
+  ENDPROJECT
+  
+
+***Element: END
