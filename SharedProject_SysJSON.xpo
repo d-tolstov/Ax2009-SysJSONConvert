@@ -8,6 +8,7 @@ Formatversion: 1
   CLSVERSION 1
   
   CLASS #SysJSONConvert
+    Id 41875
     PROPERTIES
       Name                #SysJSONConvert
       Extends             #
@@ -36,7 +37,9 @@ Formatversion: 1
         #///     Если класс по сути является массивом и на выходе хотим получить ordered list of values :
         #///         str json()
         #///         {
-        #///             return SysJSONConvert::SerializeObject( valueSet);
+        #///             return SysJSONConvert::construct()
+        #///                 .SerializeObject( valueSet)
+        #///             ;
         #///         }
         #///
         #/// </summary>
@@ -51,49 +54,46 @@ Formatversion: 1
         #    return strfmt( "{%1}", json);
         #}
       ENDSOURCE
-      SOURCE #WithKeyValue
-        #SysJSONConvert WithKeyValue(
+      SOURCE #SerializeDate
+        #protected str SerializeDate( date _value)
+        #{
+        #    return this.SerializeString( date2str( _value, 321, 2, 3, 2, 3, 4));
+        #}
+      ENDSOURCE
+      SOURCE #SerializeGuid
+        #protected str SerializeGuid( guid _value)
+        #{
+        #    return this.SerializeString( strrem(guid2str(_value),"{}"));
+        #}
+      ENDSOURCE
+      SOURCE #SerializeKeyValuePair
+        #protected str SerializeKeyValuePair(
         #    str     _key
         #  , anytype _value
         #)
         #{
-        #;
-        #    // Элементы в JSON разделены запятой
-        #    if ( json)
-        #        json    += ",";
-        #
         #    // Каждый элемент хранится в формате "elementName: elementValue"
-        #    json    += strfmt( "\"%1\": %2", _key, SysJSONConvert::SerializeObject( _value));
-        #
-        #    return this;
-        #}
-      ENDSOURCE
-      SOURCE #construct
-        #static SysJSONConvert construct()
-        #{
-        #    return new SysJSONConvert();
+        #    return strfmt( "\"%1\":%2", _key, this.SerializeObject( _value));
         #}
       ENDSOURCE
       SOURCE #SerializeObject
         #/// <summary>
         #/// Сериализует простые типы и классы, содержащие метод json()
         #/// </summary>
-        #static str SerializeObject( anytype _object)
+        #public str SerializeObject( anytype _object)
         #{
         #    #define.MethodJSON("json")
         #
         #    Types           objectType = typeof(_object);
-        #    SysEnumerator   se;
         #    Map             map;
         #    SysDictClass    sysDictClass;
-        #    SysJSONConvert  sysJSONConvert;
         #
         #    str             ret;
         #;
         #    switch ( objectType)
         #    {
         #        case Types::String:
-        #            ret = strfmt( "\"%1\"", _object);
+        #            ret = this.SerializeString( _object);
         #            break;
         #        case Types::Int64:
         #            ret = int642str(_object);
@@ -105,19 +105,19 @@ Formatversion: 1
         #            ret = int2str(_object);
         #            break;
         #        case Types::Guid:
-        #            ret = SysJSONConvert::SerializeObject(strrem(guid2str(_object),"{}"));
+        #            ret = this.SerializeGuid( _object);
         #            break;
         #        case Types::Date:
-        #            ret = SysJSONConvert::SerializeObject( date2str( _object, 321, 2, 3, 2, 3, 4));
+        #            ret = this.SerializeDate( _object);
         #            break;
         #        case Types::UtcDateTime:
-        #            ret = SysJSONConvert::SerializeObject( DateTimeUtil::toStr( _object));
+        #            ret = this.SerializeUtcDateTime( _object);
         #            break;
         #        case Types::Real:
-        #            ret = num2expstr( _object, 1);
+        #            ret = this.SerializeReal( _object);
         #            break;
         #        case Types::Container:
-        #            ret = SysJSONConvert::SerializeObject( SysEnumerator::Container( _object));
+        #            ret = this.SerializeObject( SysEnumerator::Container( _object));
         #            break;
         #        case Types::Class:
         #            if ( !_object)
@@ -126,22 +126,22 @@ Formatversion: 1
         #            switch (classidget(_object))
         #            {
         #                case classnum(SysEnumerator):
-        #                    ret = SysJSONConvert::SerializeSysEnumeratorAsArray( _object);
+        #                    ret = this.SerializeSysEnumeratorAsArray( _object);
         #                    break;
         #                case classnum(Set):
-        #                    ret = SysJSONConvert::SerializeObject( SysEnumerator::Set( _object));
+        #                    ret = this.SerializeObject( SysEnumerator::Set( _object));
         #                    break;
         #                case classnum(Map):
         #                    map = _object;
         #                    if (map.keyType() != Types::String)
         #                        throw Error(strfmt("Объект типа Map можно сериализовать в JSON только если key имеет тип String. А встретился тип %1. Обратитесь к разработчикам!", map.keyType()));
-        #                    ret = SysJSONConvert::SerializeSysEnumeratorAsKeyValuePair( SysEnumerator::newFromMap(_object));
+        #                    ret = this.SerializeSysEnumeratorAsKeyValuePair( SysEnumerator::Map(_object));
         #                    break;
         #                case classnum(List):
-        #                    ret = SysJSONConvert::SerializeObject( SysEnumerator::List( _object));
+        #                    ret = this.SerializeObject( SysEnumerator::List( _object));
         #                    break;
         #                case classnum(Struct):
-        #                    ret = SysJSONConvert::SerializeSysEnumeratorAsKeyValuePair( SysEnumerator::newFromStruct(_object));
+        #                    ret = this.SerializeSysEnumeratorAsKeyValuePair( SysEnumerator::newFromStruct(_object));
         #                    break;
         #                default:
         #                    sysDictClass    = new SysDictClass( classidget(_object));
@@ -160,18 +160,33 @@ Formatversion: 1
         #    return ret;
         #}
       ENDSOURCE
+      SOURCE #SerializeReal
+        #protected str SerializeReal( real _value)
+        #{
+        #    return num2expstr( _value, 1);
+        #}
+      ENDSOURCE
+      SOURCE #serializeString
+        #protected str SerializeString( str _value)
+        #{
+        #;
+        #    _value  = StrReplace( _value, "\\", "\\\\");
+        #    _value  = StrReplace( _value, '"', '\\\"');
+        #    return strfmt( "\"%1\"", _value);
+        #}
+      ENDSOURCE
       SOURCE #SerializeSysEnumeratorAsArray
         #/// <summary>
         #/// Сериализует SysEnumerator в структуру вида "массив"
         #/// </summary>
-        #private static str SerializeSysEnumeratorAsArray( SysEnumerator _sysEnumerator)
+        #protected str SerializeSysEnumeratorAsArray( SysEnumerator _sysEnumerator)
         #{
         #    str             ret;
         #;
         #    while (_sysEnumerator.moveNext())
         #    {
         #        ret += (ret ? "," : "")
-        #             + SysJSONConvert::SerializeObject( _sysEnumerator.current());
+        #             + this.SerializeObject( _sysEnumerator.current());
         #    }
         #
         #    return strfmt("[%1]", ret);
@@ -181,16 +196,55 @@ Formatversion: 1
         #/// <summary>
         #/// Сериализует SysEnumerator в структуру вида "коллекция пар key/value"
         #/// </summary>
-        #private static str SerializeSysEnumeratorAsKeyValuePair( SysEnumerator _sysEnumerator)
+        #protected str SerializeSysEnumeratorAsKeyValuePair( SysEnumerator _sysEnumerator)
         #{
-        #    SysJSONConvert  sysJSONConvert;
+        #    str             ret;
         #;
-        #    sysJSONConvert  = SysJSONConvert::construct();
         #    while (_sysEnumerator.moveNext())
         #    {
-        #        sysJSONConvert.WithKeyValue( _sysEnumerator.currentKey(), _sysEnumerator.currentValue());
+        #        ret += (ret ? "," : "")
+        #             + this.SerializeKeyValuePair( _sysEnumerator.currentKey(), _sysEnumerator.currentValue());
         #    }
-        #    return sysJSONConvert.json();
+        #
+        #    return strfmt("{%1}", ret);
+        #}
+      ENDSOURCE
+      SOURCE #SerializeUtcDateTime
+        #protected str SerializeUtcDateTime( utcdatetime _value)
+        #{
+        #    return this.SerializeString( DateTimeUtil::toStr( _value));
+        #}
+      ENDSOURCE
+      SOURCE #WithKeyValue
+        #SysJSONConvert WithKeyValue(
+        #    str     _key
+        #  , anytype _value
+        #)
+        #{
+        #;
+        #    // Элементы в JSON разделены запятой
+        #    if ( json)
+        #        json    += ",";
+        #
+        #    // Каждый элемент хранится в формате "elementName: elementValue"
+        #    json    += this.SerializeKeyValuePair( _key, _value);
+        #
+        #    return this;
+        #}
+      ENDSOURCE
+      SOURCE #construct
+        #/// <summary>
+        #///
+        #/// </summary>
+        #/// <returns>
+        #///
+        #/// </returns>
+        #/// <remarks>
+        #///
+        #/// </remarks>
+        #static SysJSONConvert construct()
+        #{
+        #    return new SysJSONConvert();
         #}
       ENDSOURCE
     ENDMETHODS
