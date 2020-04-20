@@ -21,6 +21,9 @@ Formatversion: 1
         #/// https://www.json.org/json-en.html
         #/// Сериализует простые типы и классы в строку формата JSON
         #///
+        #/// Сериализация аксаптовских объектов :
+        #///     return SysJSONConvert::construct().SerializeObject( object);
+        #///
         #/// Чтобы добавить произвольному классу возможность сериализоваться - нужно в нём создать функцию json()
         #///
         #/// Пример реализации функции json() :
@@ -41,22 +44,194 @@ Formatversion: 1
         #///             ;
         #///         }
         #///
+        #/// В произвольном классе также можно создать функцию struct, которая будет возвращать объект в виде одной из структур, понятных классу SysJSONConvert.
+        #/// В этом случае функция json не нужна.
+        #///     в примере ниже мы возвращаем объект класса Set :
+        #///         anytype struct()
+        #///         {
+        #///             return valueSet;
+        #///         }
+        #///
+        #/// В классах, реализующих интерфейсы ниже, не нужно создавать какие-либо функции :
+        #///     Enumerator
+        #///     Enumerable
+        #///
         #/// </summary>
         #class SysJSONConvert
         #{
         #    str     json;
         #}
       ENDSOURCE
+      SOURCE #DeserializeCLRObject
+        #System.Object DeserializeCLRObject(
+        #    str         _json
+        #  , System.Type _type
+        #)
+        #{
+        #;
+        #    new InteropPermission(InteropKind::ClrInterop).assert();
+        #
+        #    return Newtonsoft.Json.JsonConvert::DeserializeObject( _json, _type);
+        #}
+      ENDSOURCE
       SOURCE #json
         #str json()
         #{
-        #    return strfmt( "{%1}", json);
+        #    return json;
+        #}
+      ENDSOURCE
+      SOURCE #SerializeArray
+        #/// <summary>
+        #/// Сериализует Array в структуру вида "массив"
+        #/// </summary>
+        #protected str SerializeArray( Array _array)
+        #{
+        #    str             ret;
+        #
+        #    int             i;
+        #;
+        #    for ( i=1; i<=_array.lastIndex(); i++)
+        #    {
+        #        ret += (ret ? "," : "")
+        #             + this.SerializeObject( _array.value(i));
+        #    }
+        #
+        #    return strfmt("[%1]", ret);
+        #}
+      ENDSOURCE
+      SOURCE #SerializeClass
+        #/// <summary>
+        #/// Сериализует классы
+        #/// </summary>
+        #protected str SerializeClass( anytype _object)
+        #{
+        #    #define.MethodJSON("json")
+        #    #define.MethodStruct("struct")
+        #
+        #    Set             set;
+        #    List            list;
+        #    SysDictClass    sysDictClass;
+        #
+        #    str             ret;
+        #;
+        #    if ( !_object)
+        #        ret = "null";
+        #    else
+        #    switch (classidget(_object))
+        #    {
+        #        case classnum(Array):
+        #            ret     = this.SerializeArray(_object);
+        #            break;
+        #        case classnum(Set):
+        #            set     = _object;
+        #            ret     = this.SerializeObject( set.getEnumerator());
+        #            break;
+        #        case classnum(Map):
+        #            ret     = this.SerializeMap(_object);
+        #            break;
+        #        case classnum(List):
+        #            list    = _object;
+        #            ret     = this.SerializeObject( list.getEnumerator());
+        #            break;
+        #        case classnum(Struct):
+        #            ret     = this.SerializeStruct(_object);
+        #            break;
+        #        case classnum(CLRObject):
+        #            ret     = this.SerializeCLRObject( _object);
+        #            break;
+        #        default:
+        #            sysDictClass    = new SysDictClass( classidget(_object));
+        #            if ( sysDictClass.hasObjectMethod(#MethodJSON))
+        #            {
+        #                ret = sysDictClass.callObject( #MethodJSON, _object);
+        #            }
+        #            else
+        #            if ( sysDictClass.hasObjectMethod(#MethodStruct))
+        #            {
+        #                ret = this.SerializeClass( sysDictClass.callObject( #MethodStruct, _object));
+        #            }
+        #            else
+        #            if ( sysDictClass.isImplementing(classnum(Enumerator)))
+        #            {
+        #                ret = this.SerializeEnumeratorAsArray( _object);
+        #            }
+        #            else
+        #            if ( sysDictClass.isImplementing(classnum(Enumerable)))
+        #            {
+        #                ret = this.SerializeEnumerable( _object);
+        #            }
+        #            else
+        #                throw Error(strfmt("Класс %1 не содержит функцию %2. Обратитесь к разработчикам!", sysDictClass.name(), #MethodJSON));
+        #    }
+        #
+        #    return ret;
+        #}
+      ENDSOURCE
+      SOURCE #SerializeCLRObject
+        #protected str SerializeCLRObject( System.Object _object)
+        #{
+        #    str ret;
+        #;
+        #    new InteropPermission(InteropKind::ClrInterop).assert();
+        #
+        #    ret = Newtonsoft.Json.JsonConvert::SerializeObject( _object);
+        #
+        #    return ret;
+        #}
+      ENDSOURCE
+      SOURCE #SerializeContainer
+        #/// <summary>
+        #/// Сериализует Container в структуру вида "массив"
+        #/// </summary>
+        #protected str SerializeContainer( Container _container)
+        #{
+        #    str             ret;
+        #
+        #    int             i;
+        #;
+        #    for ( i=1; i<=conlen(_container); i++)
+        #    {
+        #        ret += (ret ? "," : "")
+        #             + this.SerializeObject( conpeek(_container,i));
+        #    }
+        #
+        #    return strfmt("[%1]", ret);
         #}
       ENDSOURCE
       SOURCE #SerializeDate
         #protected str SerializeDate( date _value)
         #{
         #    return this.SerializeString( date2str( _value, 321, 2, 3, 2, 3, 4));
+        #}
+      ENDSOURCE
+      SOURCE #SerializeEnumerable
+        #/// <summary>
+        #/// Сериализует Enumerable в структуру вида "массив"
+        #/// </summary>
+        #protected str SerializeEnumerable( Enumerable _enumerable)
+        #{
+        #    Enumerator      enumerator;
+        #;
+        #    enumerator  = _enumerable.getEnumerator();
+        #
+        #    return this.SerializeEnumeratorAsArray( enumerator);
+        #}
+      ENDSOURCE
+      SOURCE #SerializeEnumeratorAsArray
+        #/// <summary>
+        #/// Сериализует Enumerator в структуру вида "массив"
+        #/// </summary>
+        #protected str SerializeEnumeratorAsArray( Enumerator _enumerator)
+        #{
+        #    str             ret;
+        #;
+        #    while (_enumerator.moveNext())
+        #    {
+        #        ret += (ret ? "," : "")
+        #             + this.SerializeObject( _enumerator.current());
+        #    }
+        #
+        #    return strfmt("[%1]", ret);
         #}
       ENDSOURCE
       SOURCE #SerializeGuid
@@ -75,20 +250,46 @@ Formatversion: 1
         #    return strfmt( "\"%1\":%2", _key, this.SerializeObject( _value));
         #}
       ENDSOURCE
+      SOURCE #SerializeMap
+        #/// <summary>
+        #/// Сериализует Map в структуру вида "коллекция пар key/value"
+        #/// </summary>
+        #protected str SerializeMap( Map _map)
+        #{
+        #    MapEnumerator   me;
+        #    str             ret;
+        #;
+        #    if (_map.keyType() != Types::String)
+        #        throw Error( strfmt("Объект типа Map можно сериализовать в JSON только если key имеет тип String. А встретился тип %1. Обратитесь к разработчикам!"
+        #                   , _map.keyType()
+        #                   ));
+        #
+        #    me  = _map.getEnumerator();
+        #    while (me.moveNext())
+        #    {
+        #        ret += (ret ? "," : "")
+        #             + this.SerializeKeyValuePair( me.currentKey(), me.currentValue());
+        #    }
+        #
+        #    return strfmt("{%1}", ret);
+        #}
+      ENDSOURCE
       SOURCE #SerializeObject
         #/// <summary>
         #/// Сериализует простые типы и классы, содержащие метод json()
         #/// </summary>
         #public str SerializeObject( anytype _object)
         #{
-        #    #define.MethodJSON("json")
-        #
         #    Types           objectType = typeof(_object);
-        #    Map             map;
-        #    SysDictClass    sysDictClass;
-        #
         #    str             ret;
+        #
+        #    Set             permSet = new Set(Types::Class);
         #;
+        #    permSet.add( new InteropPermission(InteropKind::ClrInterop));
+        #    permSet.add( new ExecutePermission());
+        #
+        #    CodeAccessPermission::assertMultiple( permSet);
+        #
         #    switch ( objectType)
         #    {
         #        case Types::String:
@@ -116,45 +317,16 @@ Formatversion: 1
         #            ret = this.SerializeReal( _object);
         #            break;
         #        case Types::Container:
-        #            ret = this.SerializeObject( SysEnumerator::Container( _object));
+        #            ret = this.SerializeContainer( _object);
         #            break;
         #        case Types::Class:
-        #            if ( !_object)
-        #                ret = "null";
-        #            else
-        #            switch (classidget(_object))
-        #            {
-        #                case classnum(SysEnumerator):
-        #                    ret = this.SerializeSysEnumeratorAsArray( _object);
-        #                    break;
-        #                case classnum(Set):
-        #                    ret = this.SerializeObject( SysEnumerator::Set( _object));
-        #                    break;
-        #                case classnum(Map):
-        #                    map = _object;
-        #                    if (map.keyType() != Types::String)
-        #                        throw Error(strfmt("Объект типа Map можно сериализовать в JSON только если key имеет тип String. А встретился тип %1. Обратитесь к разработчикам!", map.keyType()));
-        #                    ret = this.SerializeSysEnumeratorAsKeyValuePair( SysEnumerator::Map(_object));
-        #                    break;
-        #                case classnum(List):
-        #                    ret = this.SerializeObject( SysEnumerator::List( _object));
-        #                    break;
-        #                case classnum(Struct):
-        #                    ret = this.SerializeSysEnumeratorAsKeyValuePair( SysEnumerator::newFromStruct(_object));
-        #                    break;
-        #                default:
-        #                    sysDictClass    = new SysDictClass( classidget(_object));
-        #                    if ( sysDictClass.hasObjectMethod(#MethodJSON))
-        #                    {
-        #                        ret = sysDictClass.callObject( #MethodJSON, _object);
-        #                    }
-        #                    else
-        #                        throw Error(strfmt("Класс %1 не содержит функцию %2. Обратитесь к разработчикам!", sysDictClass.name(), #MethodJSON));
-        #            }
+        #            ret = this.SerializeClass( _object);
         #            break;
         #        default:
         #            throw Error(strfmt("Тип %1 не обработан в функции %2. Обратитесь к разработчикам!", enum2str(objectType), funcname()));
         #    }
+        #
+        #    CodeAccessPermission::revertAssert();
         #
         #    return ret;
         #}
@@ -174,35 +346,25 @@ Formatversion: 1
         #    return strfmt( "\"%1\"", _value);
         #}
       ENDSOURCE
-      SOURCE #SerializeSysEnumeratorAsArray
+      SOURCE #SerializeStruct
         #/// <summary>
-        #/// Сериализует SysEnumerator в структуру вида "массив"
+        #/// Сериализует Struct в структуру вида "коллекция пар key/value"
         #/// </summary>
-        #protected str SerializeSysEnumeratorAsArray( SysEnumerator _sysEnumerator)
+        #protected str SerializeStruct( Struct _struct)
         #{
         #    str             ret;
-        #;
-        #    while (_sysEnumerator.moveNext())
-        #    {
-        #        ret += (ret ? "," : "")
-        #             + this.SerializeObject( _sysEnumerator.current());
-        #    }
         #
-        #    return strfmt("[%1]", ret);
-        #}
-      ENDSOURCE
-      SOURCE #SerializeSysEnumeratorAsKeyValuePair
-        #/// <summary>
-        #/// Сериализует SysEnumerator в структуру вида "коллекция пар key/value"
-        #/// </summary>
-        #protected str SerializeSysEnumeratorAsKeyValuePair( SysEnumerator _sysEnumerator)
-        #{
-        #    str             ret;
+        #    int             i;
+        #    str             fieldName;
         #;
-        #    while (_sysEnumerator.moveNext())
+        #    for ( i=1; i<=_struct.fields(); i++)
         #    {
+        #        fieldName   = _struct.fieldName(i);
+        #        if (!fieldName)
+        #            continue;
+        #
         #        ret += (ret ? "," : "")
-        #             + this.SerializeKeyValuePair( _sysEnumerator.currentKey(), _sysEnumerator.currentValue());
+        #             + this.SerializeKeyValuePair( fieldName, _struct.valueIndex(i));
         #    }
         #
         #    return strfmt("{%1}", ret);
@@ -249,6 +411,165 @@ Formatversion: 1
     ENDMETHODS
   ENDCLASS
 
+***Element: CLS
+
+; Microsoft Dynamics AX Class: SysJSONConvertTest выгружен
+; --------------------------------------------------------------------------------
+  CLSVERSION 1
+  
+  CLASS #SysJSONConvertTest
+    PROPERTIES
+      Name                #SysJSONConvertTest
+      Extends             #SysTestCase
+      RunOn               #Server
+    ENDPROPERTIES
+    
+    METHODS
+      Version: 3
+      SOURCE #classDeclaration
+        #class SysJSONConvertTest extends SysTestCase
+        #{
+        #    SysJSONConvert  convertor;
+        #
+        #    str             stringNull;
+        #    #define.JSONStringNull("\"\"")
+        #    date            dateNull;
+        #    #define.JSONDateNull("\"\"")
+        #    real            realNull;
+        #    #define.JSONRealNull("0")
+        #    int             intNull;
+        #    #define.JSONIntNull("0")
+        #    int64           int64Null;
+        #    #define.JSONInt64Null("0")
+        #    guid            guidNull;
+        #    #define.JSONGuidNull("\"00000000-0000-0000-0000-000000000000\"")
+        #
+        #    str             json;
+        #}
+      ENDSOURCE
+      SOURCE #construct
+        #protected SysJSONConvert construct()
+        #{
+        #;
+        #    convertor   = SysJSONConvert::construct();
+        #    return convertor;
+        #}
+      ENDSOURCE
+      SOURCE #testConstruct
+        #void testConstruct()
+        #{
+        #;
+        #    this.construct();
+        #
+        #    this.assertNotNull( convertor);
+        #}
+      ENDSOURCE
+      SOURCE #testConvertArray
+        #void testConvertArray()
+        #{
+        #    Array   array;
+        #;
+        #    array = new Array(Types::Integer);
+        #    array.value( 1, 10);
+        #    array.value( 2, 20);
+        #
+        #    this.assertEquals(
+        #        "[10,20]"
+        #      , this.construct().SerializeObject(array)
+        #    );
+        #}
+      ENDSOURCE
+      SOURCE #testConvertContainer
+        #void testConvertContainer()
+        #{
+        #    container   con;
+        #;
+        #    con = [ 10, 20];
+        #
+        #    this.assertEquals(
+        #        "[10,20]"
+        #      , this.construct().SerializeObject(con)
+        #    );
+        #
+        #    con = [ 10, 20, [30,40]];
+        #
+        #    this.assertEquals(
+        #        "[10,20,[30,40]]"
+        #      , this.construct().SerializeObject(con)
+        #    );
+        #}
+      ENDSOURCE
+      SOURCE #testConvertDateNull
+        #void testConvertDateNull()
+        #{
+        #;
+        #    json    = SysJSONConvert::construct().SerializeObject( dateNull);
+        #
+        #    this.assertEquals( #JSONDateNull, json);
+        #}
+      ENDSOURCE
+      SOURCE #testConvertGuidNull
+        #void testConvertGuidNull()
+        #{
+        #;
+        #    json    = SysJSONConvert::construct().SerializeObject( guidNull);
+        #
+        #    this.assertEquals( #JSONGuidNull, json);
+        #}
+      ENDSOURCE
+      SOURCE #testConvertInt64Null
+        #void testConvertInt64Null()
+        #{
+        #;
+        #    json    = SysJSONConvert::construct().SerializeObject( int64Null);
+        #
+        #    this.assertEquals( #JSONInt64Null, json);
+        #}
+      ENDSOURCE
+      SOURCE #testConvertIntNull
+        #void testConvertIntNull()
+        #{
+        #;
+        #    json    = SysJSONConvert::construct().SerializeObject( intNull);
+        #
+        #    this.assertEquals( #JSONIntNull, json);
+        #}
+      ENDSOURCE
+      SOURCE #testConvertRealNull
+        #void testConvertRealNull()
+        #{
+        #;
+        #    json    = SysJSONConvert::construct().SerializeObject( realNull);
+        #
+        #    this.assertEquals( #JSONRealNull, json);
+        #}
+      ENDSOURCE
+      SOURCE #testConvertStringNull
+        #void testConvertStringNull()
+        #{
+        #;
+        #    json    = SysJSONConvert::construct().SerializeObject( stringNull);
+        #
+        #    this.assertEquals( #JSONStringNull, json);
+        #}
+      ENDSOURCE
+      SOURCE #testConvertStruct
+        #void testConvertStruct()
+        #{
+        #    Struct  s = new Struct();
+        #;
+        #    s.add( "f1", 10);
+        #    s.add( "f2", 20);
+        #
+        #    this.assertEquals(
+        #        "{\"f1\":10,\"f2\":20}"
+        #      , this.construct().SerializeObject( s)
+        #    );
+        #}
+      ENDSOURCE
+    ENDMETHODS
+  ENDCLASS
+
 ***Element: PRN
 
 ; Microsoft Dynamics AX Project : SysJSON unloaded
@@ -276,6 +597,13 @@ Formatversion: 1
         UTILOBJECTID 41875
         NODETYPE 329
         NAME #SysJSONConvert
+      ENDNODE
+      BEGINNODE
+        FILETYPE 0
+        UTILTYPE 45
+        UTILOBJECTID 41877
+        NODETYPE 329
+        NAME #SysJSONConvertTest
       ENDNODE
       ENDGROUP
       
